@@ -81,6 +81,7 @@ class ProcessingThread(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
+    stats_updated = pyqtSignal(dict)
 
     def __init__(self, folders):
         super().__init__()
@@ -91,26 +92,49 @@ class ProcessingThread(QThread):
         try:
             for folder in self.folders:
                 if not self.is_running:
+                    logger.info("Processing stopped by user")
                     break
+
                 if not os.path.exists(folder):
                     self.error.emit(f"Folder not found: {folder}")
                     continue
+
                 self.progress.emit(f"Processing folder: {folder}")
                 try:
-                    process_screenshots(folder)
+                    # Process with callback for progress and stats updates
+                    process_screenshots(folder, callback=self.process_callback)
                 except Exception as e:
                     self.error.emit(f"Error processing folder {folder}: {str(e)}")
                     logger.error(f"Error processing folder {folder}: {str(e)}")
                     logger.error(traceback.format_exc())
                     continue
-            self.finished.emit()
+
+            if self.is_running:  # Only emit finished if not stopped
+                self.finished.emit()
         except Exception as e:
             error_msg = f"Error during processing: {str(e)}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             self.error.emit(error_msg)
 
+    def process_callback(self, data):
+        """Callback for processing updates"""
+        if not self.is_running:
+            return False  # Signal to stop processing
+            
+        if 'error' in data:
+            self.error.emit(data['error'])
+        else:
+            self.progress.emit(f"Processed: {data['file']} -> {data['category']}/{data['subcategory']}")
+            
+        if 'stats' in data:
+            self.stats_updated.emit(data['stats'])
+            
+        return self.is_running  # Return False to stop processing
+
     def stop(self):
+        """Stop processing"""
+        logger.info("Stopping processing...")
         self.is_running = False
 
 class SettingsWidget(QWidget):
@@ -785,15 +809,28 @@ class MainWindow(QMainWindow):
         self.processing_thread.progress.connect(self.updateStatus)
         self.processing_thread.error.connect(self.showError)
         self.processing_thread.finished.connect(self.processingFinished)
+        self.processing_thread.stats_updated.connect(self.updateStats)
         self.processing_thread.start()
         
         self.start_btn.setEnabled(False)
         self.stop_btn.setEnabled(True)
 
     def stopProcessing(self):
+        """Stop the processing thread"""
         if self.processing_thread and self.processing_thread.isRunning():
+            logger.info("User requested to stop processing")
             self.processing_thread.stop()
-            self.status_label.setText("Stopping...")
+            self.status_label.setText("Stopping processing...")
+            self.stop_btn.setEnabled(False)  # Disable stop button while stopping
+            
+            # Wait for the thread to finish with a timeout
+            if not self.processing_thread.wait(5000):  # 5 second timeout
+                logger.warning("Processing thread did not stop gracefully")
+                self.processing_thread.terminate()  # Force termination if necessary
+            
+            self.status_label.setText("Processing stopped by user")
+            self.start_btn.setEnabled(True)
+            logger.info("Processing stopped successfully")
 
     def updateStatus(self, message):
         self.status_label.setText(message)
@@ -809,6 +846,15 @@ class MainWindow(QMainWindow):
         self.status_label.setText(f"Error: {error_msg}")
         self.start_btn.setEnabled(True)
         self.stop_btn.setEnabled(False)
+
+    def updateStats(self, stats):
+        config_path = get_config_path('settings.json')
+        with open(config_path, 'r') as f:
+            settings = json.load(f)
+        settings['stats'] = stats
+        with open(config_path, 'w') as f:
+            json.dump(settings, f, indent=4)
+        self.dashboard_widget.loadStats()
 
     def closeEvent(self, event):
         event.ignore()

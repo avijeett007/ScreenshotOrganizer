@@ -233,33 +233,102 @@ def get_creation_date(file_path):
 def sanitize_filename(filename):
     return re.sub(r'[^\w\-_\. ]', '_', filename)
 
-def process_screenshots(folder_path):
+def process_screenshots(folder_path, callback=None):
+    """Process screenshots in the given folder with progress callback"""
     processor = ImageProcessor()
+    stats = {
+        'total_images_processed': 0,
+        'categories_created': set(),
+        'last_processed_date': None
+    }
     
-    for filename in os.listdir(folder_path):
-        if filename.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-            file_path = os.path.join(folder_path, filename)
-            
-            # Get image description
-            description = processor.get_image_description(file_path)
-            
-            # Get creation date
-            creation_date = get_creation_date(file_path)
-            date_string = creation_date.strftime("%Y%m%d_%H%M%S")
-            
-            # Create new filename
-            new_filename = f"{sanitize_filename(description['subcategory'])}_{date_string}{os.path.splitext(filename)[1]}"
-            
-            # Create category subfolder if it doesn't exist
-            category_folder = os.path.join(folder_path, sanitize_filename(description['category']))
-            os.makedirs(category_folder, exist_ok=True)
-            
-            # Define new file path in the category subfolder
-            new_file_path = os.path.join(category_folder, new_filename)
-            
-            # Move the file
-            shutil.move(file_path, new_file_path)
-            logger.info(f"Moved {filename} to {new_file_path}")
+    try:
+        for filename in os.listdir(folder_path):
+            # Check if processing should stop
+            if callback and not callback():
+                logger.info("Processing stopped by user")
+                break
+                
+            if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                file_path = os.path.join(folder_path, filename)
+                try:
+                    # Get image category
+                    result = processor.get_image_description(file_path)
+                    category = result["category"]
+                    subcategory = result["subcategory"]
+                    
+                    # Create category folder
+                    category_folder = os.path.join(folder_path, f"{category}_{subcategory}")
+                    os.makedirs(category_folder, exist_ok=True)
+                    
+                    # Generate unique filename
+                    creation_date = get_creation_date(file_path)
+                    base_name = os.path.splitext(filename)[0]
+                    extension = os.path.splitext(filename)[1]
+                    new_filename = sanitize_filename(f"{base_name}_{creation_date.strftime('%Y%m%d_%H%M%S')}{extension}")
+                    
+                    # Define new file path in the category subfolder
+                    new_file_path = os.path.join(category_folder, new_filename)
+                    
+                    # Move the file
+                    shutil.move(file_path, new_file_path)
+                    logger.info(f"Moved {filename} to {new_file_path}")
+                    
+                    # Update statistics
+                    stats['total_images_processed'] += 1
+                    stats['categories_created'].add(f"{category}_{subcategory}")
+                    stats['last_processed_date'] = datetime.datetime.now().isoformat()
+                    
+                    # Update settings file with new statistics
+                    settings_path = get_config_path('settings.json')
+                    if os.path.exists(settings_path):
+                        with open(settings_path, 'r') as f:
+                            settings = json.load(f)
+                        
+                        # Update stats in settings
+                        if 'stats' not in settings:
+                            settings['stats'] = {}
+                        settings['stats']['total_images_processed'] = (
+                            settings['stats'].get('total_images_processed', 0) + 1
+                        )
+                        settings['stats']['last_processed_date'] = stats['last_processed_date']
+                        settings['stats']['categories_created'] = list(set(
+                            settings['stats'].get('categories_created', []) + 
+                            [f"{category}_{subcategory}"]
+                        ))
+                        
+                        with open(settings_path, 'w') as f:
+                            json.dump(settings, f, indent=4)
+                    
+                    # Call progress callback if provided
+                    if callback:
+                        callback({
+                            'file': filename,
+                            'category': category,
+                            'subcategory': subcategory,
+                            'stats': stats
+                        })
+                        
+                except Exception as e:
+                    logger.error(f"Error processing {filename}: {str(e)}")
+                    logger.error(traceback.format_exc())
+                    if callback:
+                        callback({
+                            'error': f"Error processing {filename}: {str(e)}",
+                            'stats': stats
+                        })
+                    continue
+    
+    except Exception as e:
+        logger.error(f"Error processing folder {folder_path}: {str(e)}")
+        logger.error(traceback.format_exc())
+        if callback:
+            callback({
+                'error': f"Error processing folder: {str(e)}",
+                'stats': stats
+            })
+    
+    return stats
 
 if __name__ == "__main__":
     screenshot_folder = input("Enter the path to your screenshot folder: ")
