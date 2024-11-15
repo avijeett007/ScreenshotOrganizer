@@ -25,32 +25,57 @@ logger = logging.getLogger(__name__)
 IS_WINDOWS = platform.system() == "Windows"
 IS_MAC = platform.system() == "Darwin"
 
-def get_app_data_dir():
-    """Get the appropriate directory for storing application data"""
-    if IS_WINDOWS:
-        app_data = os.getenv('APPDATA')
-        base_dir = os.path.join(app_data, 'ScreenshotOrganizer')
-    elif IS_MAC:
-        base_dir = os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer')
-    else:  # Linux/Unix
-        base_dir = os.path.expanduser('~/.screenshotorganizer')
-    
-    # Create directory if it doesn't exist
-    os.makedirs(base_dir, exist_ok=True)
-    return base_dir
-
 def get_config_path(filename):
-    """Get the full path for a configuration file"""
-    return os.path.join(get_app_data_dir(), filename)
+    """Get the platform-specific path for config files"""
+    if platform.system() == "Windows":
+        config_dir = os.path.join(os.getenv('APPDATA'), 'ScreenshotOrganizer')
+    elif platform.system() == "Darwin":  # macOS
+        config_dir = os.path.join(os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer'))
+    else:  # Linux
+        config_dir = os.path.expanduser('~/.screenshotorganizer')
+    
+    # Create config directory if it doesn't exist
+    os.makedirs(config_dir, exist_ok=True)
+    
+    # Return full path to the config file
+    return os.path.join(config_dir, filename)
 
-def get_default_screenshot_dir():
-    """Get the default screenshots directory for the current platform"""
-    if IS_WINDOWS:
-        return os.path.expanduser('~/Pictures/Screenshots')
-    elif IS_MAC:
-        return os.path.expanduser('~/Desktop')  # macOS typically saves screenshots to Desktop
-    else:
-        return os.path.expanduser('~/Pictures')
+def initialize_config_files():
+    """Initialize default configuration files if they don't exist"""
+    # Default settings
+    settings = {
+        'provider': 'Together AI',
+        'model': 'Llama-3.2-11B-Vision-Instruct-Turbo',
+        'together_url': 'https://api.together.xyz',
+        'together_api_key': '',
+        'ollama_url': 'http://localhost:11434',
+        'ollama_api_key': '',
+        'stats': {
+            'total_images_processed': 0,
+            'last_processed_date': None,
+            'categories_created': []
+        }
+    }
+    
+    settings_path = get_config_path('settings.json')
+    if not os.path.exists(settings_path):
+        with open(settings_path, 'w') as f:
+            json.dump(settings, f, indent=4)
+            logger.info(f"Created default settings at {settings_path}")
+    
+    # Create other necessary config files
+    config_files = {
+        'user_data.json': {'registered': False, 'last_promo_check': None},
+        'folders.json': [],
+        'promotions.json': {"promotions": []}
+    }
+    
+    for filename, default_content in config_files.items():
+        file_path = get_config_path(filename)
+        if not os.path.exists(file_path):
+            with open(file_path, 'w') as f:
+                json.dump(default_content, f, indent=4)
+                logger.info(f"Created {filename} at {file_path}")
 
 class ProcessingThread(QThread):
     progress = pyqtSignal(str)
@@ -92,238 +117,185 @@ class SettingsWidget(QWidget):
     def __init__(self):
         super().__init__()
         self.initUI()
-        self.loadSettings()
 
     def initUI(self):
         layout = QVBoxLayout()
         layout.setSpacing(15)
+        layout.setContentsMargins(20, 20, 20, 20)
 
-        # Title
-        title = QLabel("Settings")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
-                font-weight: bold;
-                color: #1565C0;
-                margin-bottom: 20px;
-            }
-        """)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title)
-
-        # Settings Container
-        settings_widget = QWidget()
-        settings_layout = QVBoxLayout()
-        settings_widget.setLayout(settings_layout)
-        settings_widget.setStyleSheet("""
+        # Provider Selection
+        provider_group = QWidget()
+        provider_group.setStyleSheet("""
             QWidget {
                 background-color: #FFFFFF;
                 border: 1px solid #BBDEFB;
                 border-radius: 10px;
-                padding: 20px;
+                padding: 15px;
             }
             QLabel {
-                color: #424242;
-            }
-            QLineEdit {
-                padding: 8px;
-                border: 1px solid #BBDEFB;
-                border-radius: 4px;
-                background-color: #FFFFFF;
-                color: #424242;
-                min-width: 300px;
-            }
-            QLineEdit:focus {
-                border: 2px solid #1976D2;
+                color: #1565C0;
             }
             QComboBox {
                 padding: 8px;
                 border: 1px solid #BBDEFB;
                 border-radius: 4px;
-                background-color: #FFFFFF;
-                color: #424242;
                 min-width: 200px;
-            }
-            QComboBox:focus {
-                border: 2px solid #1976D2;
+                color: #424242;
+                background-color: white;
             }
             QComboBox::drop-down {
                 border: none;
             }
             QComboBox::down-arrow {
-                image: none;
-                border-left: 5px solid transparent;
-                border-right: 5px solid transparent;
-                border-top: 5px solid #424242;
-                margin-right: 8px;
+                image: url(down_arrow.png);
+                width: 12px;
+                height: 12px;
+            }
+            QComboBox QAbstractItemView {
+                background-color: white;
+                color: #424242;
+                selection-background-color: #E3F2FD;
+                selection-color: #1565C0;
             }
         """)
+        provider_layout = QVBoxLayout(provider_group)
 
-        # Provider selection
-        provider_layout = QHBoxLayout()
         provider_label = QLabel("AI Provider:")
-        provider_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
+        provider_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        provider_layout.addWidget(provider_label)
+
         self.provider_combo = QComboBox()
         self.provider_combo.addItems(["Together AI", "Ollama"])
-        self.provider_combo.currentTextChanged.connect(self.onProviderChanged)
-        provider_layout.addWidget(provider_label)
+        self.provider_combo.currentTextChanged.connect(self.on_provider_changed)
         provider_layout.addWidget(self.provider_combo)
-        provider_layout.addStretch()
-        settings_layout.addLayout(provider_layout)
 
-        # Model name
-        model_layout = QHBoxLayout()
+        layout.addWidget(provider_group)
+
+        # Model Settings
+        model_group = QWidget()
+        model_group.setStyleSheet("""
+            QWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #BBDEFB;
+                border-radius: 10px;
+                padding: 15px;
+            }
+            QLabel {
+                color: #1565C0;
+            }
+            QLineEdit {
+                padding: 8px;
+                border: 1px solid #BBDEFB;
+                border-radius: 4px;
+                color: #424242;
+                background-color: white;
+            }
+        """)
+        model_layout = QVBoxLayout(model_group)
+
+        # Model Name
         model_label = QLabel("Model Name:")
-        model_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
-        self.model_input = QLineEdit()
-        self.model_input.setPlaceholderText("Llama-3.2-11B-Vision-Instruct-Turbo")
+        model_label.setStyleSheet("font-size: 16px; font-weight: bold;")
         model_layout.addWidget(model_label)
+
+        self.model_input = QLineEdit()
         model_layout.addWidget(self.model_input)
-        model_layout.addStretch()
-        settings_layout.addLayout(model_layout)
 
-        # Together AI settings
-        self.together_url_layout = QHBoxLayout()
-        self.together_url_label = QLabel("Together AI URL:")
-        self.together_url_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
-        self.together_url_input = QLineEdit()
-        self.together_url_input.setPlaceholderText("https://api.together.xyz")
-        self.together_url_layout.addWidget(self.together_url_label)
-        self.together_url_layout.addWidget(self.together_url_input)
-        self.together_url_layout.addStretch()
-        settings_layout.addLayout(self.together_url_layout)
+        # Base URL
+        url_label = QLabel("Base URL:")
+        url_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        model_layout.addWidget(url_label)
 
-        self.together_key_layout = QHBoxLayout()
-        self.together_key_label = QLabel("Together AI Key:")
-        self.together_key_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
-        self.together_key_input = QLineEdit()
-        self.together_key_layout.addWidget(self.together_key_label)
-        self.together_key_layout.addWidget(self.together_key_input)
-        self.together_key_layout.addStretch()
-        settings_layout.addLayout(self.together_key_layout)
+        self.url_input = QLineEdit()
+        model_layout.addWidget(self.url_input)
 
-        # Ollama settings
-        self.ollama_url_layout = QHBoxLayout()
-        self.ollama_url_label = QLabel("Ollama Base URL:")
-        self.ollama_url_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
-        self.ollama_url_input = QLineEdit()
-        self.ollama_url_input.setPlaceholderText("http://localhost:11434")
-        self.ollama_url_layout.addWidget(self.ollama_url_label)
-        self.ollama_url_layout.addWidget(self.ollama_url_input)
-        self.ollama_url_layout.addStretch()
-        settings_layout.addLayout(self.ollama_url_layout)
+        # API Key
+        api_label = QLabel("API Key:")
+        api_label.setStyleSheet("font-size: 16px; font-weight: bold;")
+        model_layout.addWidget(api_label)
 
-        self.ollama_key_layout = QHBoxLayout()
-        self.ollama_key_label = QLabel("Ollama API Key:")
-        self.ollama_key_label.setStyleSheet("font-size: 14px; min-width: 120px; font-weight: bold;")
-        self.ollama_key_input = QLineEdit()
-        self.ollama_key_input.setPlaceholderText("Optional")
-        self.ollama_key_layout.addWidget(self.ollama_key_label)
-        self.ollama_key_layout.addWidget(self.ollama_key_input)
-        self.ollama_key_layout.addStretch()
-        settings_layout.addLayout(self.ollama_key_layout)
+        self.api_input = QLineEdit()
+        self.api_input.setEchoMode(QLineEdit.EchoMode.Password)
+        model_layout.addWidget(self.api_input)
 
-        layout.addWidget(settings_widget)
+        layout.addWidget(model_group)
 
-        # Save button
-        save_btn = QPushButton(" Save Settings")
-        save_btn.clicked.connect(self.saveSettings)
+        # Save Button
+        save_btn = QPushButton("Save Settings")
         save_btn.setStyleSheet("""
             QPushButton {
                 background-color: #4CAF50;
                 color: white;
-                padding: 12px 24px;
+                padding: 10px 20px;
                 border: none;
                 border-radius: 4px;
                 font-size: 14px;
-                min-width: 150px;
-                margin-top: 20px;
+                min-width: 120px;
             }
             QPushButton:hover {
                 background-color: #45a049;
             }
-            QPushButton:pressed {
-                background-color: #388E3C;
-            }
         """)
-        save_btn_layout = QHBoxLayout()
-        save_btn_layout.addStretch()
-        save_btn_layout.addWidget(save_btn)
-        save_btn_layout.addStretch()
-        layout.addLayout(save_btn_layout)
+        save_btn.clicked.connect(self.save_settings)
+        layout.addWidget(save_btn)
 
-        # Add stretch to push everything to the top
         layout.addStretch()
-        
         self.setLayout(layout)
         
-        # Initially hide Ollama settings
-        self.hideOllamaSettings()
+        # Load existing settings
+        self.load_settings()
 
-    def onProviderChanged(self, provider):
-        if provider == "Ollama":
-            self.hideTogetherSettings()
-            self.showOllamaSettings()
-        else:
-            self.showTogetherSettings()
-            self.hideOllamaSettings()
-
-    def hideTogetherSettings(self):
-        self.together_url_label.hide()
-        self.together_url_input.hide()
-        self.together_key_label.hide()
-        self.together_key_input.hide()
-
-    def showTogetherSettings(self):
-        self.together_url_label.show()
-        self.together_url_input.show()
-        self.together_key_label.show()
-        self.together_key_input.show()
-
-    def hideOllamaSettings(self):
-        self.ollama_url_label.hide()
-        self.ollama_url_input.hide()
-        self.ollama_key_label.hide()
-        self.ollama_key_input.hide()
-
-    def showOllamaSettings(self):
-        self.ollama_url_label.show()
-        self.ollama_url_input.show()
-        self.ollama_key_label.show()
-        self.ollama_key_input.show()
-
-    def loadSettings(self):
-        config_path = get_config_path('settings.json')
-        if os.path.exists(config_path):
-            with open(config_path, 'r') as f:
-                settings = json.load(f)
+    def load_settings(self):
+        try:
+            settings_path = get_config_path('settings.json')
+            if os.path.exists(settings_path):
+                with open(settings_path, 'r') as f:
+                    settings = json.load(f)
+                    
                 self.provider_combo.setCurrentText(settings.get('provider', 'Together AI'))
-                self.model_input.setText(settings.get('model', 'Llama-3.2-11B-Vision-Instruct-Turbo'))
+                self.model_input.setText(settings.get('model', ''))
                 
-                # Together AI settings
-                self.together_url_input.setText(settings.get('together_url', 'https://api.together.xyz'))
-                self.together_key_input.setText(settings.get('together_api_key', ''))
-                
-                # Ollama settings
-                self.ollama_url_input.setText(settings.get('ollama_url', 'http://localhost:11434'))
-                self.ollama_key_input.setText(settings.get('ollama_api_key', ''))
-                
-                # Ensure correct fields are shown/hidden
-                self.onProviderChanged(settings.get('provider', 'Together AI'))
+                # Set URL based on provider
+                if settings['provider'] == 'Together AI':
+                    self.url_input.setText(settings.get('together_url', 'https://api.together.xyz'))
+                    self.api_input.setText(settings.get('together_api_key', ''))
+                else:
+                    self.url_input.setText(settings.get('ollama_url', 'http://localhost:11434'))
+                    self.api_input.setText(settings.get('ollama_api_key', ''))
+                    
+        except Exception as e:
+            logger.error(f"Error loading settings: {str(e)}")
+            QMessageBox.warning(self, "Error", "Could not load settings. Using defaults.")
 
-    def saveSettings(self):
-        config_path = get_config_path('settings.json')
-        settings = {
-            'provider': self.provider_combo.currentText(),
-            'model': self.model_input.text() or 'Llama-3.2-11B-Vision-Instruct-Turbo',
-            'together_url': self.together_url_input.text() or 'https://api.together.xyz',
-            'together_api_key': self.together_key_input.text(),
-            'ollama_url': self.ollama_url_input.text() or 'http://localhost:11434',
-            'ollama_api_key': self.ollama_key_input.text()
-        }
-        with open(config_path, 'w') as f:
-            json.dump(settings, f)
-        QMessageBox.information(self, "Success", "Settings saved successfully!")
+    def save_settings(self):
+        try:
+            settings = {
+                'provider': self.provider_combo.currentText(),
+                'model': self.model_input.text(),
+                'together_url': self.url_input.text() if self.provider_combo.currentText() == 'Together AI' else 'https://api.together.xyz',
+                'together_api_key': self.api_input.text() if self.provider_combo.currentText() == 'Together AI' else '',
+                'ollama_url': self.url_input.text() if self.provider_combo.currentText() == 'Ollama' else 'http://localhost:11434',
+                'ollama_api_key': self.api_input.text() if self.provider_combo.currentText() == 'Ollama' else ''
+            }
+            
+            settings_path = get_config_path('settings.json')
+            with open(settings_path, 'w') as f:
+                json.dump(settings, f, indent=4)
+            
+            QMessageBox.information(self, "Success", "Settings saved successfully!")
+            
+        except Exception as e:
+            logger.error(f"Error saving settings: {str(e)}")
+            QMessageBox.critical(self, "Error", f"Could not save settings: {str(e)}")
+
+    def on_provider_changed(self, provider):
+        if provider == "Together AI":
+            self.model_input.setText("Llama-3.2-11B-Vision-Instruct-Turbo")
+            self.url_input.setText("https://api.together.xyz")
+        else:
+            self.model_input.setText("llama2-vision")
+            self.url_input.setText("http://localhost:11434")
+        self.api_input.clear()
 
 class FolderWidget(QWidget):
     def __init__(self):
@@ -853,48 +825,6 @@ class MainWindow(QMainWindow):
             self.processing_thread.stop()
             self.processing_thread.wait()
         QApplication.quit()
-
-def initialize_config_files():
-    """Initialize configuration files with default values if they don't exist"""
-    app_dir = get_app_data_dir()
-    
-    # Default settings
-    settings_path = get_config_path('settings.json')
-    if not os.path.exists(settings_path):
-        default_settings = {
-            "provider": "Together AI",
-            "model": "Llama-3.2-11B-Vision-Instruct-Turbo",
-            "together_url": "https://api.together.xyz",
-            "together_api_key": "",
-            "ollama_url": "http://localhost:11434",
-            "ollama_api_key": "",
-            "stats": {
-                "total_images_processed": 0,
-                "last_processed_date": None,
-                "categories_created": []
-            }
-        }
-        with open(settings_path, 'w') as f:
-            json.dump(default_settings, f, indent=4)
-    
-    # Default promotions
-    promo_path = get_config_path('promotions.json')
-    if not os.path.exists(promo_path):
-        default_promos = {
-            "promotions": [
-                {
-                    "id": "youtube_channel",
-                    "title": "Subscribe to kno2gether YouTube Channel!",
-                    "message": "🎥 Enhance your learning journey with kno2gether!\\n\\nGet more AI tips, tutorials, and exclusive content by subscribing to our YouTube channel.",
-                    "details": "Join our growing community of tech enthusiasts and stay updated with the latest AI developments and practical tutorials.",
-                    "form_url": "https://www.youtube.com/@kno2gether",
-                    "start_date": "2024-01-01",
-                    "end_date": "2024-12-31"
-                }
-            ]
-        }
-        with open(promo_path, 'w') as f:
-            json.dump(default_promos, f, indent=4)
 
 def main():
     app = QApplication(sys.argv)

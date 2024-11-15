@@ -10,6 +10,7 @@ import requests
 import logging
 import traceback
 from pathlib import Path
+import platform
 
 # Set up logging
 log_dir = os.path.join(os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer'), 'logs')
@@ -27,12 +28,27 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
+def get_config_path(filename):
+    """Get the platform-specific path for config files"""
+    if platform.system() == "Windows":
+        config_dir = os.path.join(os.getenv('APPDATA'), 'ScreenshotOrganizer')
+    elif platform.system() == "Darwin":  # macOS
+        config_dir = os.path.join(os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer'))
+    else:  # Linux
+        config_dir = os.path.expanduser('~/.screenshotorganizer')
+    
+    # Create config directory if it doesn't exist
+    os.makedirs(config_dir, exist_ok=True)
+    
+    # Return full path to the config file
+    return os.path.join(config_dir, filename)
+
 class ImageProcessor:
     def __init__(self):
         self.load_settings()
         
     def load_settings(self):
-        settings_path = os.path.join(os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer'), 'settings.json')
+        settings_path = get_config_path('settings.json')
         logger.info(f"Loading settings from: {settings_path}")
         if os.path.exists(settings_path):
             with open(settings_path, 'r') as f:
@@ -43,7 +59,7 @@ class ImageProcessor:
                 'provider': 'Together AI',
                 'model': 'Llama-3.2-11B-Vision-Instruct-Turbo',
                 'together_url': 'https://api.together.xyz',
-                'together_api_key': os.getenv('TOGETHER_API_KEY', ''),
+                'together_api_key': '',
                 'ollama_url': 'http://localhost:11434',
                 'ollama_api_key': ''
             }
