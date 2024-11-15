@@ -60,25 +60,53 @@ def initialize_config_files():
         }
     }
     
-    settings_path = get_config_path('settings.json')
+    # Create config directory if it doesn't exist
+    if platform.system() == "Windows":
+        config_dir = os.path.join(os.getenv('APPDATA'), 'ScreenshotOrganizer')
+    elif platform.system() == "Darwin":  # macOS
+        config_dir = os.path.join(os.path.expanduser('~/Library/Application Support/ScreenshotOrganizer'))
+    else:  # Linux
+        config_dir = os.path.expanduser('~/.screenshotorganizer')
+    
+    os.makedirs(config_dir, exist_ok=True)
+    
+    # Initialize settings.json if it doesn't exist
+    settings_path = os.path.join(config_dir, 'settings.json')
     if not os.path.exists(settings_path):
         with open(settings_path, 'w') as f:
             json.dump(settings, f, indent=4)
             logger.info(f"Created default settings at {settings_path}")
     
-    # Create other necessary config files
-    config_files = {
-        'user_data.json': {'registered': False, 'last_promo_check': None},
-        'folders.json': [],
-        'promotions.json': {"promotions": []}
-    }
+    # Initialize user_data.json if it doesn't exist
+    user_data_path = os.path.join(config_dir, 'user_data.json')
+    if not os.path.exists(user_data_path):
+        with open(user_data_path, 'w') as f:
+            json.dump({'registered': False, 'last_promo_check': None}, f, indent=4)
+            logger.info(f"Created user_data.json at {user_data_path}")
     
-    for filename, default_content in config_files.items():
-        file_path = get_config_path(filename)
-        if not os.path.exists(file_path):
-            with open(file_path, 'w') as f:
-                json.dump(default_content, f, indent=4)
-                logger.info(f"Created {filename} at {file_path}")
+    # Initialize folders.json if it doesn't exist
+    folders_path = os.path.join(config_dir, 'folders.json')
+    if not os.path.exists(folders_path):
+        with open(folders_path, 'w') as f:
+            json.dump([], f, indent=4)
+            logger.info(f"Created folders.json at {folders_path}")
+    
+    # Copy promotions.json from repo if it exists, otherwise create default
+    repo_promotions_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'promotions.json')
+    config_promotions_path = os.path.join(config_dir, 'promotions.json')
+    
+    if not os.path.exists(config_promotions_path):
+        if os.path.exists(repo_promotions_path):
+            # Copy from repo
+            with open(repo_promotions_path, 'r') as src, open(config_promotions_path, 'w') as dst:
+                content = json.load(src)
+                json.dump(content, dst, indent=4)
+                logger.info(f"Copied promotions.json from repo to {config_promotions_path}")
+        else:
+            # Create default
+            with open(config_promotions_path, 'w') as f:
+                json.dump({"promotions": []}, f, indent=4)
+                logger.info(f"Created default promotions.json at {config_promotions_path}")
 
 class FolderWatcher(QThread):
     new_file_detected = pyqtSignal(str)
@@ -950,13 +978,26 @@ class MainWindow(QMainWindow):
         self.stop_btn.setEnabled(False)
 
     def updateStats(self, stats):
-        config_path = get_config_path('settings.json')
-        with open(config_path, 'r') as f:
-            settings = json.load(f)
-        settings['stats'] = stats
-        with open(config_path, 'w') as f:
-            json.dump(settings, f, indent=4)
-        self.dashboard_widget.loadStats()
+        """Update statistics in settings file"""
+        try:
+            config_path = get_config_path('settings.json')
+            with open(config_path, 'r') as f:
+                settings = json.load(f)
+        
+            # Convert set to list for JSON serialization
+            if isinstance(stats.get('categories_created'), set):
+                stats['categories_created'] = list(stats['categories_created'])
+        
+            settings['stats'] = stats
+        
+            with open(config_path, 'w') as f:
+                json.dump(settings, f, indent=4)
+        
+            self.dashboard_widget.loadStats()
+        
+        except Exception as e:
+            logger.error(f"Error updating stats: {str(e)}")
+            logger.error(traceback.format_exc())
 
 def main():
     app = QApplication(sys.argv)
