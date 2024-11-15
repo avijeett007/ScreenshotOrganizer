@@ -1,3 +1,8 @@
 .env
 screenshot_organizer_env/*
 screenshots/*
+settings.json
+user_data.json
+registered.json
+__pycache__/*
+.DS_Store

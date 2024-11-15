@@ -1,0 +1,22 @@
+{
+    "promotions": [
+        {
+            "id": "youtube_channel",
+            "title": "Subscribe to kno2gether YouTube Channel!",
+            "message": "🎥 Enhance your learning journey with kno2gether!\n\nGet more AI tips, tutorials, and exclusive content by subscribing to our YouTube channel.",
+            "details": "Join our growing community of tech enthusiasts and stay updated with the latest AI developments and practical tutorials.",
+            "form_url": "https://www.youtube.com/@kno2gether",
+            "start_date": "2024-01-01",
+            "end_date": "2024-12-31"
+        },
+        {
+            "id": "spring_2024",
+            "title": "Special Offer from kno2gether!",
+            "message": "🚀 Unlock Premium Features with kno2gether!",
+            "details": "As a valued member of the kno2gether community, get exclusive access to advanced AI features and priority support.",
+            "form_url": "https://knolabs.biz/premium-offer",
+            "start_date": "2024-03-01",
+            "end_date": "2024-05-31"
+        }
+    ]
+}
