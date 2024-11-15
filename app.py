@@ -243,11 +243,17 @@ class ProcessingThread(QThread):
             return False
             
         if isinstance(data, dict):
-            if 'error' in data:
-                self.error.emit(data['error'])
-            elif 'file' in data:
+            status = data.get('status', '')
+            
+            if status == 'error':
+                self.error.emit(data.get('error', 'Unknown error'))
+            elif status == 'processing':
                 self.progress.emit(f"Processed: {data['file']} -> {data['category']}/{data['subcategory']}")
-                
+            elif status == 'checking':
+                self.progress.emit("Checking for new files...")
+            elif status == 'complete':
+                self.progress.emit("Processing complete")
+            
             if 'stats' in data:
                 # Convert set to list for JSON serialization
                 stats = data['stats'].copy()

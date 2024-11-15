@@ -245,9 +245,14 @@ def process_screenshots(folder_path, callback=None):
     try:
         for filename in os.listdir(folder_path):
             # Check if processing should stop
-            if callback and not callback():
-                logger.info("Processing stopped by user")
-                break
+            if callback:
+                should_continue = callback({
+                    'status': 'checking',
+                    'stats': stats
+                })
+                if not should_continue:
+                    logger.info("Processing stopped by user")
+                    break
                 
             if filename.lower().endswith(('.png', '.jpg', '.jpeg')):
                 file_path = os.path.join(folder_path, filename)
@@ -303,6 +308,7 @@ def process_screenshots(folder_path, callback=None):
                     # Call progress callback if provided
                     if callback:
                         callback({
+                            'status': 'processing',
                             'file': filename,
                             'category': category,
                             'subcategory': subcategory,
@@ -314,6 +320,7 @@ def process_screenshots(folder_path, callback=None):
                     logger.error(traceback.format_exc())
                     if callback:
                         callback({
+                            'status': 'error',
                             'error': f"Error processing {filename}: {str(e)}",
                             'stats': stats
                         })
@@ -324,9 +331,17 @@ def process_screenshots(folder_path, callback=None):
         logger.error(traceback.format_exc())
         if callback:
             callback({
+                'status': 'error',
                 'error': f"Error processing folder: {str(e)}",
                 'stats': stats
             })
+    
+    # Final callback with complete status
+    if callback:
+        callback({
+            'status': 'complete',
+            'stats': stats
+        })
     
     return stats
 
