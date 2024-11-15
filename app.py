@@ -242,14 +242,19 @@ class ProcessingThread(QThread):
         if not self.is_running:
             return False
             
-        if 'error' in data:
-            self.error.emit(data['error'])
-        else:
-            self.progress.emit(f"Processed: {data['file']} -> {data['category']}/{data['subcategory']}")
-            
-        if 'stats' in data:
-            self.stats_updated.emit(data['stats'])
-            
+        if isinstance(data, dict):
+            if 'error' in data:
+                self.error.emit(data['error'])
+            elif 'file' in data:
+                self.progress.emit(f"Processed: {data['file']} -> {data['category']}/{data['subcategory']}")
+                
+            if 'stats' in data:
+                # Convert set to list for JSON serialization
+                stats = data['stats'].copy()
+                if isinstance(stats.get('categories_created'), set):
+                    stats['categories_created'] = list(stats['categories_created'])
+                self.stats_updated.emit(stats)
+        
         return self.is_running
     
     def stop(self):
@@ -983,18 +988,33 @@ class MainWindow(QMainWindow):
             config_path = get_config_path('settings.json')
             with open(config_path, 'r') as f:
                 settings = json.load(f)
-        
-            # Convert set to list for JSON serialization
+            
+            # Ensure stats is a dictionary
+            if not isinstance(stats, dict):
+                logger.error(f"Invalid stats format: {stats}")
+                return
+                
+            # Convert any sets to lists
             if isinstance(stats.get('categories_created'), set):
                 stats['categories_created'] = list(stats['categories_created'])
-        
-            settings['stats'] = stats
-        
+            
+            # Update settings with new stats
+            if 'stats' not in settings:
+                settings['stats'] = {}
+            
+            settings['stats'].update({
+                'total_images_processed': stats.get('total_images_processed', 0),
+                'last_processed_date': stats.get('last_processed_date'),
+                'categories_created': stats.get('categories_created', [])
+            })
+            
+            # Write updated settings
             with open(config_path, 'w') as f:
                 json.dump(settings, f, indent=4)
-        
+            
+            # Reload dashboard stats
             self.dashboard_widget.loadStats()
-        
+            
         except Exception as e:
             logger.error(f"Error updating stats: {str(e)}")
             logger.error(traceback.format_exc())
