@@ -6,7 +6,8 @@ from pathlib import Path
 from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                             QHBoxLayout, QPushButton, QLabel, QLineEdit, 
                             QComboBox, QSystemTrayIcon, QMenu, QMessageBox,
-                            QFileDialog, QStackedWidget, QDialog, QCheckBox, QScrollArea)
+                            QFileDialog, QStackedWidget, QDialog, QCheckBox, QScrollArea,
+                            QTabWidget)
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon, QAction
 import pystray
@@ -17,6 +18,8 @@ from datetime import datetime
 import logging
 import traceback
 import webbrowser
+import time
+import threading
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -77,50 +80,139 @@ def initialize_config_files():
                 json.dump(default_content, f, indent=4)
                 logger.info(f"Created {filename} at {file_path}")
 
+class FolderWatcher(QThread):
+    new_file_detected = pyqtSignal(str)
+    
+    def __init__(self, folders):
+        super().__init__()
+        self.folders = folders
+        self.is_running = True
+        self.processed_files = set()
+        self.last_check = {}
+        
+        # Initialize last check time for each folder
+        for folder in folders:
+            self.last_check[folder] = datetime.now()
+    
+    def run(self):
+        while self.is_running:
+            for folder in self.folders:
+                if not os.path.exists(folder):
+                    continue
+                    
+                try:
+                    # Check for new files
+                    for filename in os.listdir(folder):
+                        if not self.is_running:
+                            break
+                            
+                        file_path = os.path.join(folder, filename)
+                        
+                        # Skip if not an image or already processed
+                        if not filename.lower().endswith(('.png', '.jpg', '.jpeg')):
+                            continue
+                        if file_path in self.processed_files:
+                            continue
+                            
+                        # Check if file is new since last check
+                        mod_time = datetime.fromtimestamp(os.path.getmtime(file_path))
+                        if mod_time > self.last_check[folder]:
+                            # Wait a bit to ensure file is completely written
+                            time.sleep(1)
+                            self.new_file_detected.emit(file_path)
+                            self.processed_files.add(file_path)
+                    
+                    # Update last check time
+                    self.last_check[folder] = datetime.now()
+                    
+                except Exception as e:
+                    logger.error(f"Error watching folder {folder}: {str(e)}")
+                    continue
+            
+            # Sleep before next check
+            time.sleep(2)
+    
+    def stop(self):
+        self.is_running = False
+
+
 class ProcessingThread(QThread):
     progress = pyqtSignal(str)
     finished = pyqtSignal()
     error = pyqtSignal(str)
     stats_updated = pyqtSignal(dict)
-
+    
     def __init__(self, folders):
         super().__init__()
         self.folders = folders
         self.is_running = True
-
+        self.queue = []
+        self.queue_lock = threading.Lock()
+    
+    def add_to_queue(self, file_path):
+        """Add a file to the processing queue"""
+        with self.queue_lock:
+            if file_path not in self.queue:
+                self.queue.append(file_path)
+    
     def run(self):
         try:
+            # Initial processing of existing files
             for folder in self.folders:
                 if not self.is_running:
-                    logger.info("Processing stopped by user")
                     break
-
+                    
                 if not os.path.exists(folder):
                     self.error.emit(f"Folder not found: {folder}")
                     continue
-
-                self.progress.emit(f"Processing folder: {folder}")
+                
+                self.progress.emit(f"Processing existing files in: {folder}")
                 try:
-                    # Process with callback for progress and stats updates
                     process_screenshots(folder, callback=self.process_callback)
                 except Exception as e:
                     self.error.emit(f"Error processing folder {folder}: {str(e)}")
                     logger.error(f"Error processing folder {folder}: {str(e)}")
                     logger.error(traceback.format_exc())
                     continue
-
+            
+            # Start watching for new files
+            self.watcher = FolderWatcher(self.folders)
+            self.watcher.new_file_detected.connect(self.add_to_queue)
+            self.watcher.start()
+            
+            # Process queue
+            while self.is_running:
+                with self.queue_lock:
+                    if self.queue:
+                        file_path = self.queue.pop(0)
+                        folder = os.path.dirname(file_path)
+                        try:
+                            process_screenshots(folder, callback=self.process_callback)
+                        except Exception as e:
+                            self.error.emit(f"Error processing file {file_path}: {str(e)}")
+                            logger.error(f"Error processing file {file_path}: {str(e)}")
+                            logger.error(traceback.format_exc())
+                
+                time.sleep(1)  # Prevent CPU overuse
+            
+            # Stop the watcher
+            if hasattr(self, 'watcher'):
+                self.watcher.stop()
+                self.watcher.wait()
+            
             if self.is_running:  # Only emit finished if not stopped
                 self.finished.emit()
+                
         except Exception as e:
             error_msg = f"Error during processing: {str(e)}"
             logger.error(error_msg)
             logger.error(traceback.format_exc())
             self.error.emit(error_msg)
-
+    
     def process_callback(self, data):
         """Callback for processing updates"""
         if not self.is_running:
-            return False  # Signal to stop processing
+            return False
             
         if 'error' in data:
             self.error.emit(data['error'])
@@ -130,12 +222,13 @@ class ProcessingThread(QThread):
         if 'stats' in data:
             self.stats_updated.emit(data['stats'])
             
-        return self.is_running  # Return False to stop processing
-
+        return self.is_running
+    
     def stop(self):
         """Stop processing"""
         logger.info("Stopping processing...")
         self.is_running = False
+
 
 class SettingsWidget(QWidget):
     def __init__(self):
@@ -645,44 +738,121 @@ class MainWindow(QMainWindow):
             print(f"Error showing promotion: {e}")
 
     def initUI(self):
-        self.setWindowTitle('Screenshot Organizer by kno2gether')
-        # Set a reasonable default size that works well on most screens
-        self.setGeometry(100, 100, 900, 700)
-        self.setMinimumSize(800, 600)  # Set minimum window size
-
-        # Create central widget and layout
-        central_widget = QWidget()
-        self.setCentralWidget(central_widget)
-        layout = QVBoxLayout(central_widget)
-        layout.setSpacing(10)
-        layout.setContentsMargins(10, 10, 10, 10)
-
-        # Create stacked widget for different screens
-        self.stacked_widget = QStackedWidget()
+        self.setWindowTitle("Screenshot Organizer")
+        self.setMinimumSize(800, 600)
         
-        # Add widgets to stacked widget
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        self.setCentralWidget(self.tab_widget)
+        
+        # Initialize widgets
         self.dashboard_widget = DashboardWidget()
         self.settings_widget = SettingsWidget()
         self.folder_widget = FolderWidget()
         
-        self.stacked_widget.addWidget(self.dashboard_widget)
-        self.stacked_widget.addWidget(self.settings_widget)
-        self.stacked_widget.addWidget(self.folder_widget)
+        # Add tabs
+        self.tab_widget.addTab(self.dashboard_widget, "Dashboard")
+        self.tab_widget.addTab(self.settings_widget, "Settings")
+        self.tab_widget.addTab(self.folder_widget, "Folders")
         
-        # Navigation buttons container with styling
-        nav_container = QWidget()
-        nav_container.setStyleSheet("""
-            QWidget {
-                background-color: #E3F2FD;
-                border: 1px solid #BBDEFB;
-                border-radius: 5px;
-            }
-        """)
-        nav_layout = QHBoxLayout(nav_container)
-        nav_layout.setContentsMargins(10, 5, 10, 5)
-        nav_layout.setSpacing(10)
+        # Status bar for processing status
+        self.status_label = QLabel("")
+        self.statusBar().addWidget(self.status_label)
+        
+        # Processing control buttons
+        self.setup_control_buttons()
+        
+        # Initialize processing thread
+        self.processing_thread = None
+        
+        # Load initial stats
+        self.dashboard_widget.loadStats()
+        
+        # Setup system tray
+        self.setupSystemTray()
 
-        # Navigation button style
+    def setupSystemTray(self):
+        """Setup system tray icon and menu"""
+        self.tray_icon = QSystemTrayIcon(self)
+        icon = QIcon("icon.png")
+        self.tray_icon.setIcon(icon)
+        
+        # Create tray menu
+        tray_menu = QMenu()
+        
+        # Add menu items
+        show_action = tray_menu.addAction("Show Window")
+        show_action.triggered.connect(self.showNormal)
+        
+        start_action = tray_menu.addAction("Start Processing")
+        start_action.triggered.connect(self.startProcessing)
+        
+        stop_action = tray_menu.addAction("Stop Processing")
+        stop_action.triggered.connect(self.stopProcessing)
+        
+        tray_menu.addSeparator()
+        
+        quit_action = tray_menu.addAction("Quit")
+        quit_action.triggered.connect(self.quitApplication)
+        
+        # Set the menu
+        self.tray_icon.setContextMenu(tray_menu)
+        
+        # Show the tray icon
+        self.tray_icon.show()
+        
+        # Connect tray icon activation
+        self.tray_icon.activated.connect(self.trayIconActivated)
+
+    def trayIconActivated(self, reason):
+        """Handle tray icon activation"""
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self.show()
+                self.activateWindow()
+
+    def closeEvent(self, event):
+        """Handle window close event"""
+        if self.tray_icon.isVisible():
+            self.hide()
+            self.tray_icon.showMessage(
+                "Screenshot Organizer",
+                "Application will keep running in the system tray",
+                QSystemTrayIcon.MessageIcon.Information,
+                2000
+            )
+            event.ignore()
+        else:
+            self.quitApplication()
+
+    def quitApplication(self):
+        """Properly quit the application"""
+        # Stop processing if running
+        if self.processing_thread and self.processing_thread.isRunning():
+            self.processing_thread.stop()
+            self.processing_thread.wait()
+        
+        # Remove tray icon
+        if hasattr(self, 'tray_icon'):
+            self.tray_icon.hide()
+        
+        # Quit application
+        QApplication.quit()
+
+    def setup_control_buttons(self):
+        """Setup processing control buttons"""
+        # Create buttons container
+        buttons_container = QWidget()
+        buttons_layout = QHBoxLayout(buttons_container)
+        
+        # Create buttons
+        self.start_btn = QPushButton("Start Processing")
+        self.stop_btn = QPushButton("Stop Processing")
+        self.stop_btn.setEnabled(False)
+        
+        # Style buttons
         button_style = """
             QPushButton {
                 background-color: #1976D2;
@@ -704,97 +874,29 @@ class MainWindow(QMainWindow):
                 color: #78909C;
             }
         """
-
-        # Create navigation buttons
-        self.dashboard_btn = QPushButton("🏠 Dashboard")
-        self.settings_btn = QPushButton("⚙️ Settings")
-        self.folders_btn = QPushButton("📁 Folders")
+        self.start_btn.setStyleSheet(button_style)
+        self.stop_btn.setStyleSheet(button_style)
         
-        # Make buttons checkable for visual feedback
-        for btn in [self.dashboard_btn, self.settings_btn, self.folders_btn]:
-            btn.setCheckable(True)
-            btn.setStyleSheet(button_style)
-
-        self.dashboard_btn.clicked.connect(lambda: self.switchPage(0))
-        self.settings_btn.clicked.connect(lambda: self.switchPage(1))
-        self.folders_btn.clicked.connect(lambda: self.switchPage(2))
-        
-        nav_layout.addWidget(self.dashboard_btn)
-        nav_layout.addWidget(self.settings_btn)
-        nav_layout.addWidget(self.folders_btn)
-        nav_layout.addStretch()
-
-        # Add processing control buttons
-        self.start_btn = QPushButton("▶️ Start")
-        self.stop_btn = QPushButton("⏹️ Stop")
+        # Connect buttons
         self.start_btn.clicked.connect(self.startProcessing)
         self.stop_btn.clicked.connect(self.stopProcessing)
-        self.stop_btn.setEnabled(False)
         
-        for btn in [self.start_btn, self.stop_btn]:
-            btn.setStyleSheet(button_style)
+        # Add buttons to layout
+        buttons_layout.addWidget(self.start_btn)
+        buttons_layout.addWidget(self.stop_btn)
         
-        nav_layout.addWidget(self.start_btn)
-        nav_layout.addWidget(self.stop_btn)
-
-        # Add navigation and stacked widget to main layout
-        layout.addWidget(nav_container)
-        layout.addWidget(self.stacked_widget)
-
-        # Status bar for showing processing status
-        self.status_label = QLabel("Ready")
-        self.status_label.setStyleSheet("""
-            QLabel {
-                color: #424242;
-                padding: 5px;
-                background-color: #F5F5F5;
-                border: 1px solid #E0E0E0;
-                border-radius: 3px;
-            }
-        """)
-        layout.addWidget(self.status_label)
-
-        # Set up system tray
-        self.setupSystemTray()
-        
-        # Start with dashboard selected
-        self.switchPage(0)
-
-    def switchPage(self, index):
-        # Update button states
-        self.dashboard_btn.setChecked(index == 0)
-        self.settings_btn.setChecked(index == 1)
-        self.folders_btn.setChecked(index == 2)
-        
-        # Switch to the selected page
-        self.stacked_widget.setCurrentIndex(index)
-
-    def setupSystemTray(self):
-        self.tray_icon = QSystemTrayIcon(self)
-        self.tray_icon.setIcon(QIcon("icon.png"))
-        
-        # Create tray menu
-        tray_menu = QMenu()
-        show_action = QAction("Show", self)
-        quit_action = QAction("Exit", self)
-        show_action.triggered.connect(self.show)
-        quit_action.triggered.connect(self.quitApplication)
-        
-        tray_menu.addAction(show_action)
-        tray_menu.addAction(quit_action)
-        
-        self.tray_icon.setContextMenu(tray_menu)
-        self.tray_icon.show()
+        # Add buttons container to main layout
+        self.statusBar().addWidget(buttons_container)
 
     def startProcessing(self):
         if not os.path.exists(get_config_path('folders.json')):
             QMessageBox.warning(self, "Warning", "Please configure folders first!")
-            self.switchPage(2)  # Switch to folders page
+            self.tab_widget.setCurrentIndex(2)  # Switch to folders page
             return
             
         if not self.dashboard_widget.hasConsent():
             QMessageBox.warning(self, "Warning", "Please accept the AI processing consent!")
-            self.switchPage(0)  # Switch to dashboard page
+            self.tab_widget.setCurrentIndex(0)  # Switch to dashboard page
             return
             
         with open(get_config_path('folders.json'), 'r') as f:
@@ -802,7 +904,7 @@ class MainWindow(QMainWindow):
             
         if not folders:
             QMessageBox.warning(self, "Warning", "No folders configured!")
-            self.switchPage(2)  # Switch to folders page
+            self.tab_widget.setCurrentIndex(2)  # Switch to folders page
             return
             
         self.processing_thread = ProcessingThread(folders)
@@ -855,22 +957,6 @@ class MainWindow(QMainWindow):
         with open(config_path, 'w') as f:
             json.dump(settings, f, indent=4)
         self.dashboard_widget.loadStats()
-
-    def closeEvent(self, event):
-        event.ignore()
-        self.hide()
-        self.tray_icon.showMessage(
-            "Screenshot Organizer",
-            "Application minimized to system tray",
-            QSystemTrayIcon.MessageIcon.Information,
-            2000
-        )
-
-    def quitApplication(self):
-        if self.processing_thread and self.processing_thread.isRunning():
-            self.processing_thread.stop()
-            self.processing_thread.wait()
-        QApplication.quit()
 
 def main():
     app = QApplication(sys.argv)
