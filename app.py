@@ -16,6 +16,7 @@ from user_manager import UserManager, UserRegistrationDialog, show_promotional_m
 from datetime import datetime
 import logging
 import traceback
+import webbrowser
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -394,7 +395,7 @@ class DashboardWidget(QWidget):
         # Create main widget for scroll area
         main_widget = QWidget()
         layout = QVBoxLayout(main_widget)
-        layout.setSpacing(20)
+        layout.setSpacing(15)
         layout.setContentsMargins(20, 20, 20, 20)
 
         # Welcome Section
@@ -406,32 +407,50 @@ class DashboardWidget(QWidget):
                 background-color: #E3F2FD;
                 border: 1px solid #90CAF9;
                 border-radius: 10px;
-                padding: 20px;
-                min-height: 120px;
+                padding: 15px;
             }
         """)
 
+        # Title and creator in one row
+        title_layout = QHBoxLayout()
+        
         title = QLabel("Welcome to Screenshot Organizer")
-        title.setStyleSheet("""
-            QLabel {
-                font-size: 24px;
+        title.setStyleSheet("font-size: 24px; font-weight: bold; color: #1565C0;")
+        title_layout.addWidget(title)
+        
+        creator_layout = QHBoxLayout()
+        creator_layout.setSpacing(5)
+        
+        by_label = QLabel("by")
+        by_label.setStyleSheet("color: #666; font-size: 14px;")
+        creator_layout.addWidget(by_label)
+        
+        channel_label = QLabel("kno2gether")
+        channel_label.setStyleSheet("color: #1565C0; font-size: 14px; font-weight: bold;")
+        creator_layout.addWidget(channel_label)
+        
+        youtube_btn = QPushButton("Subscribe")
+        youtube_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF0000;
+                color: white;
+                padding: 4px 12px;
+                border: none;
+                border-radius: 3px;
+                font-size: 12px;
                 font-weight: bold;
-                color: #1565C0;
-                margin-bottom: 10px;
+            }
+            QPushButton:hover {
+                background-color: #CC0000;
             }
         """)
-        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        welcome_layout.addWidget(title)
-
-        subtitle = QLabel("by kno2gether")
-        subtitle.setStyleSheet("""
-            QLabel {
-                font-size: 16px;
-                color: #1976D2;
-            }
-        """)
-        subtitle.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        welcome_layout.addWidget(subtitle)
+        youtube_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        youtube_btn.clicked.connect(lambda: webbrowser.open('https://www.youtube.com/channel/UCxgkN3luQgLQOd_L7tbOdhQ/join'))
+        creator_layout.addWidget(youtube_btn)
+        
+        creator_layout.addStretch()
+        title_layout.addLayout(creator_layout)
+        welcome_layout.addLayout(title_layout)
 
         layout.addWidget(welcome_widget)
 
@@ -444,13 +463,12 @@ class DashboardWidget(QWidget):
                 background-color: #FFFFFF;
                 border: 1px solid #BBDEFB;
                 border-radius: 10px;
-                padding: 20px;
-                min-height: 150px;
+                padding: 15px;
             }
         """)
 
         stats_title = QLabel("Statistics")
-        stats_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1565C0; margin-bottom: 10px;")
+        stats_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #1565C0;")
         stats_layout.addWidget(stats_title)
 
         self.stats_label = QLabel()
@@ -469,13 +487,12 @@ class DashboardWidget(QWidget):
                 background-color: #FFF3E0;
                 border: 1px solid #FFE0B2;
                 border-radius: 10px;
-                padding: 20px;
-                min-height: 200px;
+                padding: 15px;
             }
         """)
 
         guide_title = QLabel("Getting Started")
-        guide_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #E65100; margin-bottom: 10px;")
+        guide_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #E65100;")
         guide_layout.addWidget(guide_title)
 
         steps = [
@@ -487,7 +504,7 @@ class DashboardWidget(QWidget):
         
         for step in steps:
             step_label = QLabel(step)
-            step_label.setStyleSheet("font-size: 14px; margin: 5px 0; color: #424242;")
+            step_label.setStyleSheet("font-size: 14px; margin: 3px 0; color: #424242;")
             guide_layout.addWidget(step_label)
 
         layout.addWidget(guide_widget)
@@ -501,13 +518,12 @@ class DashboardWidget(QWidget):
                 background-color: #FFEBEE;
                 border: 1px solid #FFCDD2;
                 border-radius: 10px;
-                padding: 20px;
-                min-height: 150px;
+                padding: 15px;
             }
         """)
 
         consent_title = QLabel("Processing Consent")
-        consent_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #C62828; margin-bottom: 10px;")
+        consent_title.setStyleSheet("font-size: 18px; font-weight: bold; color: #C62828;")
         consent_layout.addWidget(consent_title)
 
         self.consent_checkbox = QCheckBox(

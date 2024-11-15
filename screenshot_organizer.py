@@ -2,7 +2,6 @@ import os
 import datetime
 import base64
 from dotenv import load_dotenv
-from together import Together
 from PIL import Image
 import re
 import shutil
@@ -70,6 +69,8 @@ class ImageProcessor:
                 base64_image = base64.b64encode(image_data).decode('utf-8')
             
             if self.settings['provider'] == 'Together AI':
+                if not self.settings.get('together_api_key'):
+                    raise Exception("Together AI API key is not set. Please configure it in settings.")
                 logger.info("Using Together AI provider")
                 return self._together_ai_process(prompt, base64_image)
             else:
@@ -82,6 +83,8 @@ class ImageProcessor:
 
     def _together_ai_process(self, prompt, base64_image):
         try:
+            # Only import Together when needed
+            from together import Together
             client = Together(api_key=self.settings['together_api_key'])
             logger.info("Making Together AI API call")
             response = client.chat.completions.create(

@@ -6,6 +6,10 @@ from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QLabel, QPushButton,
                             QMessageBox, QWidget, QHBoxLayout)
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QDesktopServices
+import logging
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 # Import platform-specific settings from app.py
 try:
@@ -32,164 +36,190 @@ class UserRegistrationDialog(QDialog):
         super().__init__(parent)
         self.setWindowTitle("Welcome to Screenshot Organizer by kno2gether")
         self.setModal(True)
-        self.setMinimumSize(500, 300)
-        
+        self.initUI()
+
+    def initUI(self):
         layout = QVBoxLayout()
-        
-        # Add branding
-        branding = QLabel("Screenshot Organizer")
-        branding.setStyleSheet("""
+        layout.setSpacing(20)
+        layout.setContentsMargins(30, 30, 30, 30)
+
+        # Welcome title with styling
+        title = QLabel("Welcome to Screenshot Organizer")
+        title.setStyleSheet("""
             QLabel {
                 font-size: 24px;
                 font-weight: bold;
-                color: #2196F3;
-                margin: 10px;
-                text-align: center;
+                color: #1565C0;
+                margin-bottom: 10px;
             }
         """)
-        branding.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(branding)
-        
-        # Add creator info
-        creator = QLabel("Created by kno2gether")
-        creator.setStyleSheet("""
+        title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title)
+
+        # Creator info container
+        creator_widget = QWidget()
+        creator_widget.setStyleSheet("""
+            QWidget {
+                background-color: #FFFFFF;
+                border: 1px solid #BBDEFB;
+                border-radius: 8px;
+                margin: 10px 0;
+            }
             QLabel {
-                font-size: 16px;
-                color: #666;
-                margin-bottom: 20px;
-                text-align: center;
+                color: #1565C0;
             }
         """)
-        creator.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(creator)
+        creator_layout = QHBoxLayout(creator_widget)
+        creator_layout.setContentsMargins(15, 10, 15, 10)
+        creator_layout.setSpacing(10)
+
+        # Channel icon/logo
+        channel_icon = QLabel("🎥")
+        channel_icon.setStyleSheet("font-size: 24px;")
+        creator_layout.addWidget(channel_icon)
+
+        # Channel name and description
+        channel_info = QVBoxLayout()
+        channel_info.setSpacing(2)
         
-        # Add instructions
+        channel_name = QLabel("kno2gether")
+        channel_name.setStyleSheet("font-size: 18px; font-weight: bold;")
+        channel_info.addWidget(channel_name)
+        
+        channel_desc = QLabel("AI & Tech Tutorials")
+        channel_desc.setStyleSheet("font-size: 12px; color: #666;")
+        channel_info.addWidget(channel_desc)
+        
+        creator_layout.addLayout(channel_info)
+        
+        # YouTube button
+        youtube_btn = QPushButton("Subscribe")
+        youtube_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #FF0000;
+                color: white;
+                padding: 6px 15px;
+                border: none;
+                border-radius: 4px;
+                font-size: 13px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #CC0000;
+            }
+        """)
+        youtube_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        youtube_btn.clicked.connect(self.open_youtube)
+        creator_layout.addWidget(youtube_btn)
+
+        layout.addWidget(creator_widget)
+
+        # Instructions container
+        instructions_widget = QWidget()
+        instructions_widget.setStyleSheet("""
+            QWidget {
+                background-color: #E3F2FD;
+                border: 1px solid #90CAF9;
+                border-radius: 10px;
+                padding: 20px;
+            }
+            QLabel {
+                color: #424242;
+                font-size: 14px;
+                line-height: 1.4;
+            }
+        """)
+        instructions_layout = QVBoxLayout(instructions_widget)
+        
         instructions = QLabel(
-            "Welcome to Screenshot Organizer! \n\n"
+            "Welcome to Screenshot Organizer!\n\n"
             "To get started, please complete these steps:\n"
             "1. Register using the form below\n"
             "2. Subscribe to our YouTube channel for tips and tutorials\n"
             "3. Click 'Done' to start using the application"
         )
         instructions.setWordWrap(True)
-        instructions.setStyleSheet("""
-            QLabel {
-                font-size: 14px;
-                color: #333;
-                margin: 10px;
-                padding: 15px;
-                background-color: #f0f0f0;
-                border-radius: 5px;
-                line-height: 1.4;
+        instructions_layout.addWidget(instructions)
+        layout.addWidget(instructions_widget)
+
+        # Buttons container with styling
+        button_container = QWidget()
+        button_container.setStyleSheet("""
+            QWidget {
+                margin-top: 20px;
             }
         """)
-        layout.addWidget(instructions)
-        
-        # Button container
-        button_container = QWidget()
         button_layout = QHBoxLayout()
         button_container.setLayout(button_layout)
-        
-        # Register button
-        register_btn = QPushButton("")
-        register_btn.clicked.connect(self.open_registration_form)
-        register_btn.setStyleSheet("""
+
+        # Common button style
+        button_style = """
             QPushButton {
-                background-color: #4CAF50;
-                color: white;
-                padding: 12px 24px;
+                padding: 10px 20px;
                 border: none;
                 border-radius: 4px;
                 font-size: 14px;
+                color: white;
                 min-width: 150px;
+            }
+            QPushButton:hover {
+                opacity: 0.9;
+            }
+        """
+
+        # Register button
+        register_btn = QPushButton("📝 Register Now")
+        register_btn.setStyleSheet(button_style + """
+            QPushButton {
+                background-color: #4CAF50;
             }
             QPushButton:hover {
                 background-color: #45a049;
             }
         """)
-        
-        # YouTube button
-        youtube_btn = QPushButton("")
-        youtube_btn.clicked.connect(self.open_youtube)
-        youtube_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #FF0000;
-                color: white;
-                padding: 12px 24px;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                min-width: 150px;
-            }
-            QPushButton:hover {
-                background-color: #CC0000;
-            }
-        """)
-        
+        register_btn.clicked.connect(self.open_registration_form)
+
         # Done button
-        done_btn = QPushButton("")
-        done_btn.clicked.connect(self.accept)
-        done_btn.setStyleSheet("""
+        done_btn = QPushButton("✅ Done")
+        done_btn.setStyleSheet(button_style + """
             QPushButton {
                 background-color: #2196F3;
-                color: white;
-                padding: 12px 24px;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                min-width: 100px;
             }
             QPushButton:hover {
                 background-color: #1976D2;
             }
         """)
-        
+        done_btn.clicked.connect(self.accept)
+
         # Cancel button
-        cancel_btn = QPushButton("")
-        cancel_btn.clicked.connect(self.reject)
-        cancel_btn.setStyleSheet("""
+        cancel_btn = QPushButton("❌ Cancel")
+        cancel_btn.setStyleSheet(button_style + """
             QPushButton {
                 background-color: #f44336;
-                color: white;
-                padding: 12px 24px;
-                border: none;
-                border-radius: 4px;
-                font-size: 14px;
-                min-width: 100px;
             }
             QPushButton:hover {
-                background-color: #da190b;
+                background-color: #d32f2f;
             }
         """)
-        
+        cancel_btn.clicked.connect(self.reject)
+
+        # Add buttons to layout
         button_layout.addWidget(register_btn)
-        button_layout.addWidget(youtube_btn)
         button_layout.addWidget(done_btn)
         button_layout.addWidget(cancel_btn)
-        
+
         layout.addWidget(button_container)
-        
-        # Add footer
-        footer = QLabel("Subscribe to kno2gether on YouTube for AI tutorials and tech tips!")
-        footer.setStyleSheet("""
-            QLabel {
-                font-size: 12px;
-                color: #666;
-                margin-top: 20px;
-                text-align: center;
-                font-style: italic;
-            }
-        """)
-        footer.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(footer)
-        
         self.setLayout(layout)
-    
+
+        # Set a minimum size for the dialog
+        self.setMinimumWidth(700)
+        self.setMinimumHeight(400)
+
     def open_registration_form(self):
-        webbrowser.open("https://knolabs.biz/affiliate-demo")
-    
+        webbrowser.open('https://knolabs.biz/community')
+
     def open_youtube(self):
-        webbrowser.open("https://www.youtube.com/@kno2gether")
+        webbrowser.open('https://www.youtube.com/@kno2gether')
 
 class PromotionalDialog(QDialog):
     def __init__(self, parent=None, promo_data=None):
@@ -319,24 +349,67 @@ class UserManager:
 
 def show_promotional_message(parent, promo_data):
     """Show a promotional message dialog and open the form URL in browser if clicked"""
-    msg = QMessageBox(parent)
-    msg.setWindowTitle(f"kno2gether - {promo_data['title']}")
-    msg.setText(promo_data["message"])
+    dialog = QMessageBox(parent)
+    dialog.setWindowTitle(f"kno2gether - {promo_data['title']}")
+    dialog.setText(promo_data["message"])
     if "details" in promo_data:
-        msg.setInformativeText(promo_data["details"])
+        dialog.setInformativeText(promo_data["details"])
     
-    # Add custom buttons
-    if "form_url" in promo_data:
-        if "youtube" in promo_data["form_url"].lower():
-            action_btn = msg.addButton("", QMessageBox.ButtonRole.ActionRole)
-        else:
-            action_btn = msg.addButton("", QMessageBox.ButtonRole.ActionRole)
-    close_btn = msg.addButton("", QMessageBox.ButtonRole.RejectRole)
+    # Set icon based on promotion type
+    dialog.setIcon(QMessageBox.Icon.Information)
     
-    msg.exec()
+    # Add custom buttons with styling
+    button_style = """
+        QPushButton {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            color: white;
+            min-width: 100px;
+        }
+        QPushButton:hover {
+            opacity: 0.9;
+        }
+    """
     
-    # Check if the user clicked the action button
-    if msg.clickedButton() == action_btn and "form_url" in promo_data:
-        webbrowser.open(promo_data["form_url"])
+    # Create and style the OK button
+    ok_button = QPushButton("View Offer")
+    ok_button.setStyleSheet(button_style + """
+        QPushButton {
+            background-color: #4CAF50;
+        }
+        QPushButton:hover {
+            background-color: #45a049;
+        }
+    """)
+    dialog.addButton(ok_button, QMessageBox.ButtonRole.AcceptRole)
+    
+    # Create and style the Cancel button
+    cancel_button = QPushButton("Cancel")
+    cancel_button.setStyleSheet(button_style + """
+        QPushButton {
+            background-color: #757575;
+        }
+        QPushButton:hover {
+            background-color: #616161;
+        }
+    """)
+    dialog.addButton(cancel_button, QMessageBox.ButtonRole.RejectRole)
+    
+    # Store the URL to be opened
+    target_url = promo_data.get("form_url", "")
+    logger.info(f"Promotion dialog created for URL: {target_url}")
+    
+    # Set default button
+    dialog.setDefaultButton(ok_button)
+    
+    # Show dialog and handle response
+    clicked_button = dialog.exec()
+    
+    # Check which button was clicked and open the URL from promotions.json
+    if dialog.clickedButton() == ok_button and target_url:
+        logger.info(f"Opening promotion URL: {target_url}")
+        webbrowser.open(target_url)
     
     return True
